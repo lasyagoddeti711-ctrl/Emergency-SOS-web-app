@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LifeLink - Emergency & Blood Match Network</title>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
+    button { font-family: inherit; cursor: pointer; border: none; }
+    .app { min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* High-contrast sensory strobe overlay for deaf/hard-of-hearing visual alerts */
+    .sos-strobe-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      pointer-events: none; /* Keeps buttons clickable underneath */
+      animation: emergencyStrobe 0.5s infinite;
+      mix-blend-mode: hard-light;
+    }
+
+    @keyframes emergencyStrobe {
+      0%, 49% {
+        background-color: rgba(220, 38, 38, 0.75);
+      }
+      50%, 100% {
+        background-color: rgba(255, 255, 255, 0.85);
+      }
+    }
+
+    .header {
+      height: 72px; background: white; display: flex; justify-content: space-between;
+      align-items: center; padding: 0 8%; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 100;
+    }
+    .logo { font-size: 22px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+    .nav-actions { display: flex; align-items: center; gap: 14px; }
+    .btn-radar { background: #0f172a; color: white; text-decoration: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+
+    .btn-profile-nav {
+      display: flex; align-items: center; gap: 8px; background: #eff6ff;
+      border: 1px solid #bfdbfe; padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; color: #1d4ed8;
+    }
+    .blood-nav-badge { background: #dc2626; color: white; padding: 2px 7px; border-radius: 12px; font-size: 11px; }
+
+    .auth-wall {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center; z-index: 999; padding: 20px;
+    }
+    .auth-box {
+      background: white; border-radius: 20px; width: 100%; max-width: 480px; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+    }
+    .auth-box h2 { font-size: 22px; color: #0f172a; margin-bottom: 6px; }
+    .auth-box p { font-size: 13px; color: #64748b; margin-bottom: 18px; }
+
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+    }
+    .modal-card {
+      background: white; border-radius: 20px; width: 100%; max-width: 520px; padding: 30px; box-shadow: 0 20px 30px rgba(0,0,0,0.2);
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .close-x { background: none; font-size: 22px; color: #64748b; cursor: pointer; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-group label { font-size: 12px; font-weight: 700; color: #475569; }
+    .form-group input, .form-group select {
+      padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; outline: none;
+    }
+
+    .btn-primary { background: #dc2626; color: white; padding: 12px; border-radius: 8px; font-size: 15px; font-weight: 700; width: 100%; margin-top: 14px; }
+    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-verify { background: #0284c7; color: white; border-radius: 8px; font-weight: 700; font-size: 13px; padding: 10px; width: 100%; }
+    .btn-save-edit { background: #16a34a; color: white; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 14px; }
+    .btn-cancel-edit { background: #e2e8f0; color: #334155; padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; }
+    .profile-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 14px; border-top: 1px solid #f1f5f9; }
+    .btn-signout { background: #f1f5f9; color: #334155; padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 13px; }
+    .btn-delete-acc { background: #fee2e2; color: #dc2626; padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 13px; }
+
+    .hero { min-height: 440px; padding: 40px 8%; display: flex; justify-content: space-between; align-items: center; gap: 40px; }
+    .hero-content { max-width: 580px; }
+    .small-title { color: #dc2626; font-size: 13px; font-weight: 800; letter-spacing: 1.5px; margin-bottom: 10px; }
+    .hero h1 { font-size: 46px; line-height: 1.1; margin-bottom: 16px; color: #0f172a; }
+    .hero h1 span { color: #dc2626; }
+    .description { font-size: 16px; color: #64748b; line-height: 1.5; }
+
+    .sos-button {
+      width: 250px; height: 250px; border-radius: 50%; background: #dc2626;
+      color: white; border: 12px solid #fee2e2; box-shadow: 0 15px 40px rgba(220, 38, 38, 0.3);
+    }
+    .active-sos {
+      width: 320px; background: white; border: 3px solid #dc2626; border-radius: 20px; padding: 24px; text-align: center;
+    }
+    .timer { font-size: 64px; font-weight: 900; color: #dc2626; margin: 8px 0; }
+    .cancel-button { width: 100%; padding: 12px; border-radius: 8px; background: #0f172a; color: white; font-weight: 700; }
+
+    .incoming-alert-card {
+      max-width: 900px; margin: 20px auto; padding: 20px 24px; background: #fff1f2;
+      border: 2px solid #e11d48; border-radius: 14px;
+    }
+    .donor-accepted-panel {
+      max-width: 900px; margin: 20px auto; padding: 20px; background: #f0fdf4;
+      border: 2px solid #22c55e; border-radius: 14px;
+    }
+    .content-container { max-width: 900px; margin: 0 auto 50px; display: flex; flex-direction: column; gap: 24px; padding: 0 20px; }
+    .card { background: white; border-radius: 16px; padding: 26px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+    .blood-badge { background: #fee2e2; color: #dc2626; padding: 2px 7px; border-radius: 5px; font-weight: 800; font-size: 12px; margin-left: 6px; }
+    .privacy-badge { background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; }
+    .verified-badge { background: #dcfce7; color: #15803d; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; display: inline-block; text-align: center; }
+    .call-btn-small { text-decoration: none; background: #16a34a; color: white; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; }
+
+    footer { text-align: center; padding: 25px; color: #64748b; border-top: 1px solid #e2e8f0; }
+    @media (max-width: 800px) {
+      .hero { flex-direction: column; text-align: center; }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const socket = io();
+
+    function App() {
+      const [registeredUser, setRegisteredUser] = useState(() => {
+        const saved = localStorage.getItem("lifelink_donor_user");
+        return saved ? JSON.parse(saved) : null;
+      });
+
+      const [showProfileModal, setShowProfileModal] = useState(false);
+      const [isEditing, setIsEditing] = useState(false);
+
+      // Auth Mode Switch: "signin" or "signup"
+      const [authMode, setAuthMode] = useState("signin");
+      const [loginPhone, setLoginPhone] = useState("");
+      const [loginPassword, setLoginPassword] = useState("");
+
+      // Identity Sandbox Verification States
+      const [verificationStage, setVerificationStage] = useState("INIT");
+      const [txnId, setTxnId] = useState("");
+      const [otpInput, setOtpInput] = useState("");
+      const [verificationToken, setVerificationToken] = useState("");
+
+      const [regForm, setRegForm] = useState({
+        name: "", age: "", gender: "Male", phone: "", bloodGroup: "O+", city: "Patna",
+        aadhar: "", password: ""
+      });
+
+      const [editForm, setEditForm] = useState({
+        name: "", age: "", gender: "Male", phone: "", bloodGroup: "O+", city: "Patna"
+      });
+
+      const [sosActive, setSosActive] = useState(false);
+      const [countdown, setCountdown] = useState(60);
+
+      const [reqForm, setReqForm] = useState({
+        requesterName: "", requesterPhone: "", bloodGroup: "O+", hospitalName: "Patna AIIMS / General Hospital", units: "1 Unit"
+      });
+      const [myActiveRequestId, setMyActiveRequestId] = useState(null);
+      const [acceptedDonorsList, setAcceptedDonorsList] = useState([]);
+      const [incomingBloodAlert, setIncomingBloodAlert] = useState(null);
+      const [hasAccepted, setHasAccepted] = useState(false);
+
+      const [donors, setDonors] = useState([]);
+      const [filterGroup, setFilterGroup] = useState("ALL");
+
+      // Ref handles
+      const timerRef = useRef(null);
+      const audioCtxRef = useRef(null);
+      const oscRef = useRef(null);
+      const vibrationIntervalRef = useRef(null);
+
+      // Web Vibration API
+      const startVibration = () => {
+        if ('vibrate' in navigator) {
+          navigator.vibrate([400, 200]);
+          vibrationIntervalRef.current = setInterval(() => {
+            navigator.vibrate([400, 200]);
+          }, 600);
+        }
+      };
+
+      const stopVibration = () => {
+        if (vibrationIntervalRef.current) {
+          clearInterval(vibrationIntervalRef.current);
+          vibrationIntervalRef.current = null;
+        }
+        if ('vibrate' in navigator) {
+          navigator.vibrate(0);
+        }
+      };
+
+      // High Precision GPS Fetcher
+      const getPreciseLocation = () => {
+        return new Promise((resolve, reject) => {
+          if (!("geolocation" in navigator)) return reject(new Error("No Geolocation"));
+          navigator.geolocation.getCurrentPosition(
+            pos => resolve({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy
+            }),
+            err => reject(err),
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+          );
+        });
+      };
+
+      const playBloodRing = () => {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContext) return;
+          const ctx = new AudioContext();
+          if (ctx.state === "suspended") ctx.resume();
+
+          const ring = (freq, start, duration) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+            gain.gain.setValueAtTime(0, ctx.currentTime + start);
+            gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + start + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(ctx.currentTime + start);
+            osc.stop(ctx.currentTime + start + duration);
+          };
+
+          ring(659.25, 0.0, 0.25);
+          ring(880.00, 0.18, 0.35);
+        } catch (e) {}
+      };
+
+      useEffect(() => {
+        fetchDonors("ALL");
+
+        socket.on("blood_emergency_broadcast", (alertData) => {
+          if (!registeredUser) return;
+          if (registeredUser.phone === alertData.requesterPhone) return;
+
+          const userGroup = registeredUser.bloodGroup ? registeredUser.bloodGroup.toUpperCase() : null;
+          const canDonate = alertData.compatibleDonorGroups && alertData.compatibleDonorGroups.includes(userGroup);
+
+          if (canDonate) {
+            setIncomingBloodAlert(alertData);
+            setHasAccepted(false);
+            playBloodRing();
+          }
+        });
+
+        return () => socket.off("blood_emergency_broadcast");
+      }, [registeredUser]);
+
+      useEffect(() => {
+        if (!myActiveRequestId) return;
+        const eventName = `request_accepted_${myActiveRequestId}`;
+        socket.on(eventName, (donor) => {
+          setAcceptedDonorsList(prev => {
+            if (prev.some(d => d.id === donor.id)) return prev;
+            return [...prev, donor];
+          });
+        });
+        return () => socket.off(eventName);
+      }, [myActiveRequestId]);
+
+      const fetchDonors = (group) => {
+        const query = group && group !== "ALL" ? `?group=${encodeURIComponent(group)}` : "";
+        fetch(`/api/donors${query}`)
+          .then(res => res.json())
+          .then(data => setDonors(data.donors || []));
+      };
+
+      // Sign In Handler
+      const handleLogin = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        const cleanPhone = loginPhone.replace(/\D/g, '');
+
+        if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+          alert("Please enter a valid 10-digit mobile number.");
+          return;
+        }
+
+        fetch("/api/donors/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: cleanPhone, password: loginPassword })
+        })
+          .then(async (r) => {
+            const data = await r.json();
+            if (data.success) {
+              setRegisteredUser(data.donor);
+              localStorage.setItem("lifelink_donor_user", JSON.stringify(data.donor));
+              setLoginPhone("");
+              setLoginPassword("");
+              fetchDonors(filterGroup);
+            } else {
+              alert(data.message);
+            }
+          })
+          .catch((err) => {
+            console.error("Fetch failure:", err);
+            alert("Sign in failed. Check terminal to ensure server is running.");
+          });
+      };
+
+      // Stage 1: Send Sandbox OTP
+      const handleSendOtp = () => {
+        const cleanPhone = regForm.phone.replace(/\D/g, '');
+        const cleanAadhar = regForm.aadhar.replace(/\D/g, '');
+
+        if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+          alert("Enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.");
+          return;
+        }
+
+        if (cleanAadhar.length !== 12) {
+          alert("Identification number must be exactly 12 digits.");
+          return;
+        }
+
+        fetch("/api/auth/aadhaar/generate-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ aadhar: cleanAadhar, phone: cleanPhone })
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) {
+              setTxnId(data.txnId);
+              setVerificationStage("OTP_SENT");
+              alert(data.message);
+            } else {
+              alert(data.message);
+            }
+          });
+      };
+
+      // Stage 2: Confirm Sandbox OTP
+      const handleConfirmOtp = () => {
+        fetch("/api/auth/aadhaar/verify-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ txnId, otp: otpInput, phone: regForm.phone })
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) {
+              setVerificationToken(data.verificationToken);
+              setVerificationStage("VERIFIED");
+              alert("✓ Identity match verified successfully by gateway!");
+            } else {
+              alert(data.message);
+            }
+          });
+      };
+
+      // Stage 3: Submit Registration
+      const handleRegister = (e) => {
+        e.preventDefault();
+
+        if (verificationStage !== "VERIFIED") {
+          alert("Please complete identity and mobile OTP verification before proceeding.");
+          return;
+        }
+
+        const specialCharRegex = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/;
+        if (regForm.password.length < 6 || !specialCharRegex.test(regForm.password)) {
+          alert("Password must be at least 6 characters and contain at least one special character (!@#$%^&*).");
+          return;
+        }
+
+        fetch("/api/donors/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...regForm, verificationToken })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              setRegisteredUser(data.donor);
+              localStorage.setItem("lifelink_donor_user", JSON.stringify(data.donor));
+              fetchDonors(filterGroup);
+            } else {
+              alert(data.message);
+            }
+          });
+      };
+
+      const handleSaveEdit = (e) => {
+        e.preventDefault();
+        const cleanPhone = editForm.phone.replace(/\D/g, '');
+        if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+          alert("Mobile number must be exactly 10 digits.");
+          return;
+        }
+
+        fetch(`/api/donors/${registeredUser.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...editForm, phone: cleanPhone })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              setRegisteredUser(data.donor);
+              localStorage.setItem("lifelink_donor_user", JSON.stringify(data.donor));
+              setIsEditing(false);
+              fetchDonors(filterGroup);
+              alert("Details updated successfully!");
+            } else {
+              alert(data.message);
+            }
+          });
+      };
+
+      const handleDeleteAccount = () => {
+        if (!confirm("Are you sure? Your verified profile will be deleted permanently.")) return;
+        fetch(`/api/donors/${registeredUser.id}`, { method: "DELETE" })
+          .then(() => handleSignOut());
+      };
+
+      const handleSignOut = () => {
+        localStorage.removeItem("lifelink_donor_user");
+        sessionStorage.clear();
+        setRegisteredUser(null);
+        setShowProfileModal(false);
+        setVerificationStage("INIT");
+        window.location.reload();
+      };
+
+      const startAlarm = () => {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          const ctx = new AudioContext();
+          audioCtxRef.current = ctx;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sawtooth";
+          osc.frequency.value = 900;
+          gain.gain.value = 0.2;
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          oscRef.current = osc;
+
+          let toggle = true;
+          oscRef.current.siren = setInterval(() => {
+            if (oscRef.current) {
+              oscRef.current.frequency.value = toggle ? 1200 : 750;
+              toggle = !toggle;
+            }
+          }, 350);
+        } catch (e) {}
+      };
+
+      const stopAlarm = () => {
+        if (oscRef.current) {
+          clearInterval(oscRef.current.siren);
+          try { oscRef.current.stop(); } catch(e) {}
+          oscRef.current = null;
+        }
+        if (audioCtxRef.current) {
+          audioCtxRef.current.close();
+          audioCtxRef.current = null;
+        }
+      };
+
+      // SOS Countdown & Trigger Engine
+      useEffect(() => {
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+
+        if (!sosActive) {
+          stopAlarm();
+          stopVibration();
+          return;
+        }
+
+        startVibration();
+
+        timerRef.current = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timerRef.current);
+              timerRef.current = null;
+              stopAlarm();
+              stopVibration();
+              setSosActive(false);
+
+              getPreciseLocation()
+                .then((coords) => {
+                  fetch("/api/sos", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(coords),
+                  });
+                  alert(`🚨 SOS Dispatched! Accuracy: ±${Math.round(coords.accuracy)}m.`);
+                })
+                .catch(() => {
+                  fetch("/api/sos", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ latitude: 25.5941, longitude: 85.1376, accuracy: 500 }),
+                  });
+                  alert("🚨 SOS Dispatched using fallback default coordinates.");
+                });
+
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+
+        return () => {
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          stopVibration();
+        };
+      }, [sosActive]);
+
+      const handleBroadcast = (e) => {
+        e.preventDefault();
+        fetch("/api/blood/urgent-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...reqForm,
+            requesterName: registeredUser.name,
+            requesterPhone: registeredUser.phone
+          })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              setMyActiveRequestId(data.request.requestId);
+              setAcceptedDonorsList([]);
+              alert(`Urgent request broadcasted for ${data.request.neededGroup}!`);
+            } else {
+              alert(data.message);
+            }
+          });
+      };
+
+      return (
+        <div className="app">
+          {/* Visual blinking strobe active throughout the 60-second window */}
+          {sosActive && <div className="sos-strobe-overlay" aria-hidden="true" />}
+
+          <header className="header">
+            <div className="logo">❤️ LifeLink</div>
+            <div className="nav-actions">
+              <a href="/dashboard.html" target="_blank" className="btn-radar">Hospital Radar &rarr;</a>
+              {registeredUser && (
+                <button className="btn-profile-nav" onClick={() => { setEditForm({...registeredUser}); setIsEditing(false); setShowProfileModal(true); }}>
+                  <span>👤 {registeredUser.name}</span>
+                  <span className="blood-nav-badge">{registeredUser.bloodGroup}</span>
+                </button>
+              )}
+            </div>
+          </header>
+
+          {/* TABBED AUTH WALL (ONLY SHOWN IF USER IS NOT LOGGED IN) */}
+          {!registeredUser && (
+            <div className="auth-wall">
+              <div className="auth-box">
+                {/* Auth Mode Toggle Tabs */}
+                <div style={{ display: "flex", gap: "10px", marginBottom: "20px", borderBottom: "1px solid #e2e8f0", paddingBottom: "10px" }}>
+                  <button
+                    type="button"
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: "8px", fontWeight: "700",
+                      background: authMode === "signin" ? "#dc2626" : "#f1f5f9",
+                      color: authMode === "signin" ? "white" : "#475569"
+                    }}
+                    onClick={() => setAuthMode("signin")}
+                  >
+                    🔑 Sign In
+                  </button>
+                  <button
+                    type="button"
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: "8px", fontWeight: "700",
+                      background: authMode === "signup" ? "#dc2626" : "#f1f5f9",
+                      color: authMode === "signup" ? "white" : "#475569"
+                    }}
+                    onClick={() => setAuthMode("signup")}
+                  >
+                    📝 Sign Up
+                  </button>
+                </div>
+
+                {/* --- 1. SIGN IN FORM --- */}
+                {authMode === "signin" ? (
+                  <form onSubmit={handleLogin}>
+                    <h2>Welcome Back</h2>
+                    <p style={{ marginBottom: "16px", color: "#64748b", fontSize: "13px" }}>
+                      Sign in with your registered mobile number and password.
+                    </p>
+                    <div className="form-grid">
+                      <div className="form-group full">
+                        <label>Registered 10-Digit Mobile</label>
+                        <input
+                          type="tel" maxLength="10" placeholder="9876543210" required
+                          value={loginPhone} onChange={e => setLoginPhone(e.target.value.replace(/\D/g, ''))}
+                        />
+                      </div>
+                      <div className="form-group full">
+                        <label>Password</label>
+                        <input
+                          type="password" placeholder="Enter your password" required
+                          value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <button type="submit" className="btn-primary">Sign In to LifeLink</button>
+                  </form>
+                ) : (
+
+                /* --- 2. SIGN UP FORM --- */
+                  <form onSubmit={handleRegister}>
+                    <h2>🛡️ Verified Registration</h2>
+                    <p style={{ marginBottom: "14px", color: "#64748b", fontSize: "13px" }}>
+                      Complete one-time verification. Accounts cannot be recreated unless deleted.
+                    </p>
+
+                    <div className="form-grid">
+                      <div className="form-group full">
+                        <label>12-Digit Identification Number</label>
+                        <input
+                          type="text" maxLength="12" placeholder="12-digit number" required
+                          disabled={verificationStage === "VERIFIED"}
+                          value={regForm.aadhar} onChange={e => setRegForm({...regForm, aadhar: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+                      <div className="form-group full">
+                        <label>10-Digit Linked Mobile</label>
+                        <input
+                          type="tel" maxLength="10" placeholder="9876543210" required
+                          disabled={verificationStage === "VERIFIED"}
+                          value={regForm.phone} onChange={e => setRegForm({...regForm, phone: e.target.value.replace(/\D/g, '')})}
+                        />
+                      </div>
+
+                      {verificationStage === "INIT" && (
+                        <div className="form-group full">
+                          <button type="button" className="btn-verify" onClick={handleSendOtp}>
+                            📲 Request Verification OTP
+                          </button>
+                        </div>
+                      )}
+
+                      {verificationStage === "OTP_SENT" && (
+                        <div className="form-group full" style={{ background: "#f0f9ff", padding: "12px", borderRadius: "8px" }}>
+                          <label>Enter 6-Digit Passcode</label>
+                          <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                            <input
+                              type="text" maxLength="6" placeholder="123456"
+                              value={otpInput} onChange={e => setOtpInput(e.target.value)}
+                            />
+                            <button type="button" className="btn-verify" style={{ width: "auto" }} onClick={handleConfirmOtp}>Confirm</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {verificationStage === "VERIFIED" && (
+                        <div className="form-group full">
+                          <div className="verified-badge">✓ Identity Confirmed</div>
+                        </div>
+                      )}
+
+                      <div className="form-group full">
+                        <label>Full Legal Name</label>
+                        <input
+                          type="text" required placeholder="Full Name"
+                          value={regForm.name} onChange={e => setRegForm({...regForm, name: e.target.value})}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Create Password</label>
+                        <input
+                          type="password" required placeholder="e.g. Pass@123"
+                          value={regForm.password} onChange={e => setRegForm({...regForm, password: e.target.value})}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Blood Group</label>
+                        <select value={regForm.bloodGroup} onChange={e => setRegForm({...regForm, bloodGroup: e.target.value})}>
+                          <option value="O+">O+</option><option value="O-">O-</option>
+                          <option value="A+">A+</option><option value="A-">A-</option>
+                          <option value="B+">B+</option><option value="B-">B-</option>
+                          <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Age</label>
+                        <input
+                          type="number" placeholder="21" required
+                          value={regForm.age} onChange={e => setRegForm({...regForm, age: e.target.value})}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Gender</label>
+                        <select value={regForm.gender} onChange={e => setRegForm({...regForm, gender: e.target.value})}>
+                          <option value="Female">Female</option><option value="Male">Male</option><option value="Other">Other</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button type="submit" className="btn-primary" disabled={verificationStage !== "VERIFIED"}>
+                      Create Verified Account
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* PROFILE MODAL */}
+          {showProfileModal && registeredUser && (
+            <div className="modal-overlay">
+              <div className="modal-card">
+                <div className="modal-header">
+                  <h3>User Profile</h3>
+                  <button className="close-x" onClick={() => setShowProfileModal(false)}>✕</button>
+                </div>
+
+                {!isEditing ? (
+                  <div>
+                    <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "10px", lineHeight: "1.9", border: "1px solid #e2e8f0" }}>
+                      <div><strong>Name:</strong> {registeredUser.name}</div>
+                      <div><strong>Phone:</strong> +91 {registeredUser.phone}</div>
+                      <div><strong>Blood Group:</strong> <span className="blood-badge">{registeredUser.bloodGroup}</span></div>
+                      <div><strong>Verification:</strong> <span className="privacy-badge">🔒 ID Verified (****{registeredUser.aadharLast4})</span></div>
+                      <div><strong>City:</strong> {registeredUser.city}</div>
+                    </div>
+
+                    <button className="btn-save-edit" style={{ marginTop: "16px" }} onClick={() => setIsEditing(true)}>
+                      ✏️ Edit Profile Details
+                    </button>
+
+                    <div className="profile-footer">
+                      <button className="btn-signout" onClick={handleSignOut}>Sign Out</button>
+                      <button className="btn-delete-acc" onClick={handleDeleteAccount}>🗑️ Delete Account</button>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSaveEdit}>
+                    <div className="form-grid">
+                      <div className="form-group full">
+                        <label>Name</label>
+                        <input type="text" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} required />
+                      </div>
+                      <div className="form-group">
+                        <label>10-Digit Mobile Number</label>
+                        <input type="tel" maxLength="10" value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value.replace(/\D/g, '')})} required />
+                      </div>
+                      <div className="form-group">
+                        <label>Blood Group</label>
+                        <select value={editForm.bloodGroup} onChange={e => setEditForm({...editForm, bloodGroup: e.target.value})}>
+                          <option value="O+">O+</option><option value="O-">O-</option>
+                          <option value="A+">A+</option><option value="A-">A-</option>
+                          <option value="B+">B+</option><option value="B-">B-</option>
+                          <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "10px", marginTop: "18px" }}>
+                      <button type="submit" className="btn-save-edit">Save Changes</button>
+                      <button type="button" className="btn-cancel-edit" onClick={() => setIsEditing(false)}>Cancel</button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* INCOMING EMERGENCY ALERT NOTIFICATION */}
+          {incomingBloodAlert && (
+            <div className="incoming-alert-card">
+              <h3 style={{ color: "#9f1239", marginBottom: "6px" }}>🔔 Urgent Blood Needed: {incomingBloodAlert.neededGroup}</h3>
+              <p style={{ color: "#334155", fontSize: "14px", lineHeight: "1.5" }}>
+                Patient: <strong>{incomingBloodAlert.requesterName}</strong> at <strong>{incomingBloodAlert.hospitalName}</strong> needs {incomingBloodAlert.units}.
+              </p>
+              <div style={{ display: "flex", gap: "10px", marginTop: "12px", alignItems: "center" }}>
+                {!hasAccepted ? (
+                  <button
+                    style={{ background: "#16a34a", color: "white", padding: "8px 16px", borderRadius: "8px", fontWeight: "700" }}
+                    onClick={() => {
+                      socket.emit("donor_accepted_request", { requestId: incomingBloodAlert.requestId, donor: registeredUser });
+                      setHasAccepted(true);
+                    }}
+                  >
+                    ✓ Accept & Share My Contact
+                  </button>
+                ) : (
+                  <span style={{ color: "#166534", fontWeight: "700", fontSize: "13px" }}>✓ Contact shared directly with requester.</span>
+                )}
+                <button style={{ background: "#e2e8f0", padding: "8px 14px", borderRadius: "8px", fontWeight: "700" }} onClick={() => setIncomingBloodAlert(null)}>Dismiss</button>
+              </div>
+            </div>
+          )}
+
+          {/* ACCEPTED DONORS FOR REQUESTER */}
+          {myActiveRequestId && (
+            <div className="donor-accepted-panel">
+              <h3 style={{ color: "#166534" }}>🟢 Donors Who Accepted Your Request:</h3>
+              {acceptedDonorsList.length === 0 ? (
+                <p style={{ marginTop: "8px", color: "#6b7280", fontSize: "13px" }}>Waiting for nearby matching donors to accept...</p>
+              ) : (
+                acceptedDonorsList.map((donor, idx) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "white", padding: "12px 16px", borderRadius: "8px", marginTop: "10px" }}>
+                    <div>
+                      <strong>{donor.name} <span className="blood-badge">{donor.bloodGroup}</span></strong>
+                      <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
+                        Phone: +91 {donor.phone} • Verified Donor (ID: ****{donor.aadharLast4})
+                      </div>
+                    </div>
+                    <a href={`tel:${donor.phone}`} className="call-btn-small">📞 Call Donor</a>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* MAIN HERO & SOS SECTION */}
+          <main>
+            <section className="hero">
+              <div className="hero-content">
+                <p className="small-title">EMERGENCY RESPONSE SYSTEM</p>
+                <h1>Help is just <span>one tap away.</span></h1>
+                <p className="description">Dispatch ambulances with high-precision GPS and ping verified matching blood donors privately.</p>
+              </div>
+
+              <div>
+                {!sosActive ? (
+                  <button
+                    className="sos-button"
+                    onClick={() => {
+                      setCountdown(60);
+                      setSosActive(true);
+                      startAlarm();
+                    }}
+                  >
+                    <div style={{ fontSize: "44px" }}>🚨</div>
+                    <div style={{ fontSize: "38px", fontWeight: "900" }}>SOS</div>
+                    <div style={{ fontSize: "13px" }}>Emergency Dispatch</div>
+                  </button>
+                ) : (
+                  <div className="active-sos">
+                    <h2 style={{ color: "#dc2626" }}>🚨 SOS ACTIVATED</h2>
+                    <div className="timer">{countdown}</div>
+                    <button
+                      className="cancel-button"
+                      onClick={() => {
+                        if (timerRef.current) {
+                          clearInterval(timerRef.current);
+                          timerRef.current = null;
+                        }
+                        stopAlarm();
+                        stopVibration();
+                        setSosActive(false);
+                        setCountdown(60);
+                      }}
+                    >
+                      ❌ CANCEL SOS
+                    </button>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <div className="content-container">
+              {/* URGENT BLOOD REQUEST CARD */}
+              <div className="card">
+                <h3>📢 Need Blood Urgently? (Broadcast Request)</h3>
+                <form onSubmit={handleBroadcast} style={{ marginTop: "14px" }}>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>Blood Group Needed</label>
+                      <select value={reqForm.bloodGroup} onChange={e => setReqForm({...reqForm, bloodGroup: e.target.value})}>
+                        <option value="A+">Need A+</option><option value="A-">Need A-</option>
+                        <option value="B+">Need B+</option><option value="B-">Need B-</option>
+                        <option value="O+">Need O+</option><option value="O-">Need O-</option>
+                        <option value="AB+">Need AB+</option><option value="AB-">Need AB-</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Hospital / Clinic</label>
+                      <input type="text" value={reqForm.hospitalName} onChange={e => setReqForm({...reqForm, hospitalName: e.target.value})} required />
+                    </div>
+                    <div className="form-group full">
+                      <label>Units Needed</label>
+                      <input type="text" value={reqForm.units} onChange={e => setReqForm({...reqForm, units: e.target.value})} />
+                    </div>
+                  </div>
+                  <button type="submit" className="btn-primary">⚡ Send Emergency Blood Broadcast</button>
+                </form>
+              </div>
+
+              {/* PRIVACY PROTECTED PUBLIC DONOR DIRECTORY */}
+              <div className="card">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                  <div>
+                    <h3>🔍 Registered Donors Directory</h3>
+                    <p style={{ fontSize: "12px", color: "#64748b" }}>Phone numbers are masked to protect donor identity until emergency acceptance.</p>
+                  </div>
+                  <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); fetchDonors(e.target.value); }}>
+                    <option value="ALL">All Groups</option>
+                    <option value="A+">A+</option><option value="A-">A-</option>
+                    <option value="B+">B+</option><option value="B-">B-</option>
+                    <option value="O+">O+</option><option value="O-">O-</option>
+                    <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                  </select>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {donors.map(donor => (
+                    <div key={donor.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #f1f5f9" }}>
+                      <div>
+                        <strong>{donor.name} <span className="blood-badge">{donor.bloodGroup}</span></strong>
+                        <span className="privacy-badge">Verified (****{donor.aadharLast4})</span>
+                        <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
+                          Protected Phone: <strong>{donor.phone}</strong> • {donor.city}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: "12px", color: "#15803d", fontWeight: "600" }}>🛡️ Privacy Protected</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </main>
+
+          <footer>LifeLink Emergency & Real-Time Blood Match System</footer>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>

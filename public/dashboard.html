@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LifeLink - Hospital Emergency Radar & Dispatch Console</title>
+
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- Leaflet GIS Map Engine -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet Routing Machine (Live Driving Route Engine) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+  <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Top Command Header */
+    .top-bar {
+      height: 64px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      flex-shrink: 0;
+    }
+    .brand { font-size: 20px; font-weight: 800; display: flex; align-items: center; gap: 10px; color: #f8fafc; }
+    .radar-indicator { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #22c55e; }
+    .pulse-dot {
+      width: 10px; height: 10px; background: #22c55e; border-radius: 50%;
+      box-shadow: 0 0 10px #22c55e; animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+
+    /* Main Split Layout */
+    .main-workspace { display: flex; flex: 1; overflow: hidden; }
+
+    /* Left Triage Stream (420px) */
+    .triage-feed {
+      width: 420px;
+      background: #0f172a;
+      border-right: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow-y: auto;
+    }
+    .feed-section { padding: 18px; border-bottom: 1px solid #1e293b; }
+    .feed-section h3 {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #94a3b8;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    /* Incident Cards */
+    .sos-card {
+      background: #1e293b;
+      border-left: 5px solid #ef4444;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);
+      animation: flashIn 0.5s ease-out;
+    }
+    @keyframes flashIn { from { background: #450a0a; } to { background: #1e293b; } }
+    
+    .sos-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .sos-id { font-weight: 800; color: #ef4444; font-size: 14px; }
+    .sos-time { font-size: 12px; color: #94a3b8; }
+    .sos-details { font-size: 13px; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px; }
+    
+    .btn-action-group { display: flex; gap: 8px; }
+    .btn-focus {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn-navigate {
+      background: #dc2626;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-weight: 700;
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Blood Request Cards */
+    .blood-card {
+      background: #1e293b;
+      border-left: 5px solid #3b82f6;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    .blood-badge {
+      background: #fee2e2;
+      color: #dc2626;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    /* Right Live Map Canvas */
+    #map { flex: 1; height: 100%; width: 100%; background: #020617; }
+    .no-alerts { color: #64748b; font-size: 13px; font-style: italic; }
+
+    /* Hide the text instructions itinerary overlay from Leaflet Routing Machine */
+    .leaflet-routing-container { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Top Dispatch Header -->
+  <header class="top-bar">
+    <div class="brand">
+      <span>🏥</span>
+      <span>LifeLink Hospital Command Console</span>
+    </div>
+    <div class="radar-indicator">
+      <span class="pulse-dot"></span>
+      <span>Live Dispatch & Driving Telemetry</span>
+    </div>
+  </header>
+
+  <div class="main-workspace">
+    <!-- Left Feed Stream -->
+    <aside class="triage-feed">
+      <div class="feed-section">
+        <h3>🚨 Inbound SOS Incidents (<span id="sosCount">0</span>)</h3>
+        <div id="sosContainer">
+          <p class="no-alerts">Listening for incoming victim coordinates...</p>
+        </div>
+      </div>
+
+      <div class="feed-section">
+        <h3>🩸 City Blood Shortages & Broadcasts</h3>
+        <div id="bloodContainer">
+          <p class="no-alerts">No active blood shortages in circulation.</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right Live GIS Map -->
+    <main id="map"></main>
+  </div>
+
+  <script>
+    const socket = io();
+
+    // 1. Hospital / Ambulance Base Coordinates (Origin Point)
+    const hospitalLat = 25.5619;
+    const hospitalLng = 85.0444;
+
+    // 2. Initialize Leaflet Map centered on Hospital Base
+    const map = L.map('map').setView([hospitalLat, hospitalLng], 12);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    // Drop persistent pin at Hospital Dispatch Station
+    const hospitalMarker = L.marker([hospitalLat, hospitalLng]).addTo(map);
+    hospitalMarker.bindPopup("<b>🏥 LifeLink Hospital Base</b><br>Ambulance Dispatch Station").openPopup();
+
+    const activeMarkers = {};
+    let routingControl = null;
+    let sosCount = 0;
+
+    // Audio Klaxon Alarm for Incoming Incidents
+    const playHospitalAlarm = () => {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.4);
+
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+      } catch (e) {}
+    };
+
+    // 3. Handle Inbound SOS Alert from User
+    socket.on('new_emergency_alert', (incident) => {
+      playHospitalAlarm();
+      sosCount++;
+      document.getElementById('sosCount').textContent = sosCount;
+
+      const container = document.getElementById('sosContainer');
+      if (container.querySelector('.no-alerts')) container.innerHTML = '';
+
+      const lat = incident.latitude;
+      const lng = incident.longitude;
+      const acc = Math.round(incident.accuracy);
+
+      // Explicit Hospital Origin -> Incident Destination with driving mode
+      const googleNavUrl = `https://www.google.com/maps/dir/?api=1&origin=${hospitalLat},${hospitalLng}&destination=${lat},${lng}&travelmode=driving`;
+
+      // Drop Incident Pin & Accuracy Ring on Leaflet Map
+      const incidentMarker = L.marker([lat, lng]).addTo(map);
+      const accuracyCircle = L.circle([lat, lng], {
+        radius: acc || 25,
+        color: '#ef4444',
+        fillColor: '#fee2e2',
+        fillOpacity: 0.45
+      }).addTo(map);
+
+      incidentMarker.bindPopup(`<b>🚨 Incident ${incident.id}</b><br>GPS Accuracy: ±${acc}m`).openPopup();
+      activeMarkers[incident.id] = { marker: incidentMarker, circle: accuracyCircle, lat, lng };
+
+      // Clear previous driving route and plot new road path from Hospital to Incident
+      if (routingControl) {
+        map.removeControl(routingControl);
+      }
+
+      routingControl = L.Routing.control({
+        waypoints: [
+          L.latLng(hospitalLat, hospitalLng), // Origin: Hospital Base
+          L.latLng(lat, lng)                 // Destination: Accident Coordinates
+        ],
+        routeWhileDragging: false,
+        addWaypoints: false,
+        lineOptions: {
+          styles: [{ color: '#dc2626', opacity: 0.85, weight: 6 }]
+        }
+      }).addTo(map);
+
+      // Center map view on the incident location
+      map.flyTo([lat, lng], 15, { duration: 1.5 });
+
+      // Add Incident Card to Triage List
+      const card = document.createElement('div');
+      card.className = 'sos-card';
+      card.id = `card-${incident.id}`;
+      card.innerHTML = `
+        <div class="sos-card-header">
+          <span class="sos-id">⚠️ ${incident.id}</span>
+          <span class="sos-time">${incident.time}</span>
+        </div>
+        <div class="sos-details">
+          <div><strong>Accident Site:</strong> ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+          <div><strong>GPS Error Margin:</strong> ±${acc} meters</div>
+        </div>
+        <div class="btn-action-group">
+          <button class="btn-focus" onclick="focusIncident('${incident.id}')">🎯 Center Pin</button>
+          <a href="${googleNavUrl}" target="_blank" class="btn-navigate">🚑 Dispatch Route &rarr;</a>
+        </div>
+      `;
+      container.prepend(card);
+    });
+
+    // Helper: Focus and Zoom Incident from Card
+    window.focusIncident = (id) => {
+      const target = activeMarkers[id];
+      if (target) {
+        map.flyTo([target.lat, target.lng], 16);
+        target.marker.openPopup();
+      }
+    };
+
+    // 4. Handle City Blood Shortage Broadcasts
+    socket.on('blood_emergency_broadcast', (request) => {
+      const container = document.getElementById('bloodContainer');
+      if (container.querySelector('.no-alerts')) container.innerHTML = '';
+
+      const card = document.createElement('div');
+      card.className = 'blood-card';
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <strong>${request.requesterName}</strong>
+          <span class="blood-badge">${request.neededGroup}</span>
+        </div>
+        <div style="color: #cbd5e1;">Hospital: <strong>${request.hospitalName}</strong> (${request.units})</div>
+        <div style="color: #60a5fa; font-size: 11px; margin-top: 4px;">Matching Donors Notified: ${request.compatibleDonorGroups.join(', ')}</div>
+      `;
+      container.prepend(card);
+    });
+  </script>
+</body>
+</html>

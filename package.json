@@ -1,0 +1,17 @@
+{
+  "name": "emergency-sos-system",
+  "version": "1.0.0",
+  "description": "Emergency alert system with 60s alarm, hospital dispatch, and blood donor finder",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "twilio": "^5.0.0"
+  }
+}
